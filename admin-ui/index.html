@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Draaft Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-50 min-h-screen">
+    <div class="max-w-4xl mx-auto p-8">
+      <h1 class="text-3xl font-bold text-gray-800 mb-8">Draaft Admin Panel</h1>
+
+      <div id="statusPanel" class="bg-white rounded-lg shadow-md p-6 mb-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">Server Status</h2>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="space-y-2">
+            <div class="flex items-center space-x-2">
+              <div
+                id="runningStatus"
+                class="w-3 h-3 rounded-full bg-gray-300"
+              ></div>
+              <span class="text-gray-700">Running</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <div
+                id="initializedStatus"
+                class="w-3 h-3 rounded-full bg-gray-300"
+              ></div>
+              <span class="text-gray-700">Initialized</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <div
+                id="responsiveStatus"
+                class="w-3 h-3 rounded-full bg-gray-300"
+              ></div>
+              <span class="text-gray-700">Responsive</span>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="text-sm text-gray-600">
+              <span class="font-medium">Uptime:</span>
+              <span id="uptime">-</span>
+            </div>
+            <div class="text-sm text-gray-600">
+              <span class="font-medium">Last Health Check:</span>
+              <span id="lastHealthCheck">-</span>
+            </div>
+            <div class="text-sm text-gray-600">
+              <span class="font-medium">Last Heartbeat:</span>
+              <span id="lastHeartbeat">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="controls" class="bg-white rounded-lg shadow-md p-6 mb-8">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">
+          Server Controls
+        </h2>
+        <div class="space-y-4">
+          <div>
+            <input
+              id="seedInput"
+              placeholder="World Seed"
+              class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              oninput="updateStartButtonState()"
+            />
+          </div>
+          <div class="flex space-x-4">
+            <button
+              id="startServerBtn"
+              onclick="startServer()"
+              class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+              disabled
+            >
+              Start Server
+            </button>
+            <button
+              onclick="stopServer()"
+              class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+            >
+              Stop Server
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="playerPanel" class="bg-white rounded-lg shadow-md p-6">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4">
+          Player Management
+        </h2>
+        <div class="space-y-4">
+          <div class="flex space-x-4">
+            <input
+              id="playerNameInput"
+              placeholder="Player Name"
+              class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onclick="addPlayer()"
+              class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            >
+              Add Player
+            </button>
+          </div>
+          <div id="playersList" class="space-y-4"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function updateStartButtonState() {
+        const seedInput = document.getElementById("seedInput");
+        const startButton = document.getElementById("startServerBtn");
+        startButton.disabled = !seedInput.value.trim();
+      }
+
+      async function startServer() {
+        const seed = document.getElementById("seedInput").value;
+        const res = await fetch("/start-server", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seed }),
+        });
+        if (res.ok) {
+          alert("Server started");
+          loadPlayers();
+        } else {
+          const err = await res.json();
+          alert("Error: " + err.error);
+        }
+      }
+
+      async function stopServer() {
+        const res = await fetch("/stop-server", { method: "POST" });
+        if (res.ok) {
+          alert("Server stopped and cleaned up");
+          loadPlayers();
+        } else {
+          const err = await res.json();
+          alert("Error: " + err.error);
+        }
+      }
+
+      async function addPlayer() {
+        const name = document.getElementById("playerNameInput").value;
+        if (!name) return alert("Enter a name");
+
+        await fetch("/add-player", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+
+        document.getElementById("playerNameInput").value = "";
+        loadPlayers();
+      }
+
+      async function removePlayer(token) {
+        await fetch("/remove-player", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+        loadPlayers();
+      }
+
+      async function loadPlayers() {
+        const res = await fetch("/players");
+        const players = await res.json();
+        const container = document.getElementById("playersList");
+        container.innerHTML = "";
+
+        players.forEach((player) => {
+          const el = document.createElement("div");
+          el.className = "bg-gray-50 rounded-lg p-4 border border-gray-200";
+          el.innerHTML = `
+            <div class="flex justify-between items-start mb-3">
+              <strong class="text-lg text-gray-800">${player.name}</strong>
+              <button 
+                onclick="removePlayer('${player.token}')"
+                class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+              >
+                Remove
+              </button>
+            </div>
+            <div class="space-y-2">
+              <div>
+                <span class="text-sm text-gray-600">Token:</span>
+                <code class="block mt-1 px-3 py-2 bg-gray-100 rounded text-sm font-mono">${player.token}</code>
+              </div>
+              <div>
+                <span class="text-sm text-gray-600">Dynmap URL:</span>
+                <code class="block mt-1 px-3 py-2 bg-gray-100 rounded text-sm font-mono">${window.location.origin}/map?token=${player.token}</code>
+              </div>
+            </div>
+          `;
+          container.appendChild(el);
+        });
+      }
+
+      function updateStatusIndicator(elementId, isActive) {
+        const element = document.getElementById(elementId);
+        element.className = `w-3 h-3 rounded-full ${
+          isActive ? "bg-green-500" : "bg-red-500"
+        }`;
+      }
+
+      function formatTimeAgo(timestamp) {
+        if (!timestamp) return "-";
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diff = Math.floor((now - date) / 1000);
+
+        if (diff < 60) return `${diff}s ago`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+        return `${Math.floor(diff / 3600)}h ago`;
+      }
+
+      function formatUptime(seconds) {
+        if (!seconds) return "-";
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        return `${hours}h ${minutes}m ${secs}s`;
+      }
+
+      async function updateServerStatus() {
+        try {
+          const res = await fetch("/health");
+          const status = await res.json();
+
+          updateStatusIndicator("runningStatus", status.isRunning);
+          updateStatusIndicator("initializedStatus", status.isInitialized);
+          updateStatusIndicator("responsiveStatus", status.isResponsive);
+
+          document.getElementById("uptime").textContent = formatUptime(
+            status.uptime
+          );
+          document.getElementById("lastHealthCheck").textContent =
+            formatTimeAgo(status.lastHealthCheck);
+          document.getElementById("lastHeartbeat").textContent = formatTimeAgo(
+            status.lastHeartbeat
+          );
+        } catch (err) {
+          console.error("Failed to fetch server status:", err);
+          updateStatusIndicator("runningStatus", false);
+          updateStatusIndicator("initializedStatus", false);
+          updateStatusIndicator("responsiveStatus", false);
+        }
+      }
+
+      // Update status every 2 seconds
+      setInterval(updateServerStatus, 10000);
+      // Initial status check
+      updateServerStatus();
+
+      loadPlayers();
+    </script>
+  </body>
+</html>

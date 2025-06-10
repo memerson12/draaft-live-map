@@ -1,0 +1,5 @@
+name: DynmapSyncPlugin
+version: '${project.version}'
+main: com.memerson.dynmapsync.DynmapMarkerSync
+api-version: '1.16'
+depend: [dynmap]

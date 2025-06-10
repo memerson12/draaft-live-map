@@ -1,0 +1,8 @@
+**/.idea/
+.vscode/
+.env
+
+node_modules/
+
+players.db
+/server_instance/
