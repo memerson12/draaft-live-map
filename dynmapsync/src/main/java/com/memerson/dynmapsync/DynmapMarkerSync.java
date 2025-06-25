@@ -9,11 +9,17 @@ import org.dynmap.markers.MarkerAPI;
 import org.dynmap.markers.MarkerSet;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.*;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.logging.Logger;
 
 public class DynmapMarkerSync extends JavaPlugin {
+
+    public final Logger LOGGER = getLogger();
+
     private MarkerAPI markerAPI;
     private MarkerSet markerSet;
     private Connection dbConnection;
@@ -23,12 +29,16 @@ public class DynmapMarkerSync extends JavaPlugin {
     public void onEnable() {
         initDatabase();
         DynmapCommonAPIListener.register(new DynmapMarkerListener(this));
+        LOGGER.info("DynmapMarkerSync enabled");
     }
 
     public void onDynmapReady(DynmapCommonAPI api) {
+//        api.triggerRenderOfVolume("world", -1000, 0, -1000, 1000, 255, 1000);
+
+
         markerAPI = api.getMarkerAPI();
         if (markerAPI == null) {
-            getLogger().severe("Failed to get MarkerAPI!");
+            LOGGER.severe("Failed to get MarkerAPI!");
             return;
         }
 
@@ -37,15 +47,21 @@ public class DynmapMarkerSync extends JavaPlugin {
             markerSet = markerAPI.createMarkerSet(MARKER_SET_ID, "Live Map Players", null, false);
         }
 
+        LOGGER.info("Marker set created!");
         runTaskLoop();
     }
 
     private void initDatabase() {
         try {
-            File dbFile = new File(getServer().getWorldContainer().getParent(), "players.db");
+            LOGGER.info("Initializing database...");
+            LOGGER.info(System.getProperty("user.dir"));
+            Path path = Paths.get(System.getProperty("user.dir"));
+            File dbFile = new File(path.getParent().toAbsolutePath().toFile(), "players.db");
+
+            LOGGER.info("Loading players.db from " + dbFile.getAbsolutePath());
             dbConnection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());
         } catch (SQLException e) {
-            getLogger().severe("Failed to open players.db: " + e.getMessage());
+            LOGGER.severe("Failed to open players.db: " + e.getMessage());
         }
     }
 
@@ -91,7 +107,7 @@ public class DynmapMarkerSync extends JavaPlugin {
             }
 
         } catch (SQLException e) {
-            getLogger().warning("DB read error: " + e.getMessage());
+            LOGGER.warning("DB read error: " + e.getMessage());
         }
     }
 
@@ -103,7 +119,7 @@ public class DynmapMarkerSync extends JavaPlugin {
             if (dbConnection != null && !dbConnection.isClosed())
                 dbConnection.close();
         } catch (SQLException e) {
-            getLogger().warning("DB close error: " + e.getMessage());
+            LOGGER.warning("DB close error: " + e.getMessage());
         }
     }
 }

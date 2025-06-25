@@ -1,11 +1,40 @@
 const fs = require("fs-extra");
 const path = require("path");
 const { spawn } = require("child_process");
+const { EventEmitter } = require("events");
 
 // Constants
 const TEMPLATE_DIR = path.join(__dirname, "server_template");
 const SERVER_DIR = path.join(__dirname, "server_instance");
 const DYNMAP_PORT = 8123;
+
+// Log streaming
+const logEmitter = new EventEmitter();
+const logBuffer = [];
+const MAX_LOG_BUFFER = 1000; // Keep last 1000 lines
+
+function addLogEntry(entry) {
+  const timestamp = new Date().toISOString();
+  const logEntry = {
+    timestamp,
+    message: entry,
+    type: "log",
+  };
+
+  logBuffer.push(logEntry);
+
+  // Keep buffer size manageable
+  if (logBuffer.length > MAX_LOG_BUFFER) {
+    logBuffer.shift();
+  }
+
+  // Emit to all connected clients
+  logEmitter.emit("log", logEntry);
+}
+
+function getLogBuffer() {
+  return [...logBuffer];
+}
 
 // Server State Management
 let serverProcess = null;
@@ -101,10 +130,15 @@ async function stopAndCleanup() {
 
 async function startServer(seed) {
   await fs.copy(TEMPLATE_DIR, SERVER_DIR);
-  await fs.writeFile(
-    path.join(SERVER_DIR, "server.properties"),
-    generateServerProperties(seed)
-  );
+  // await fs.writeFile(
+  //   path.join(SERVER_DIR, "server.properties"),
+  //   generateServerProperties(seed)
+  // );
+
+  // Create log file stream
+  const logFile = fs.createWriteStream(path.join(SERVER_DIR, "server.log"), {
+    flags: "a",
+  });
 
   // Create a promise that resolves when the server is initialized
   const initializationPromise = new Promise((resolve, reject) => {
@@ -119,9 +153,14 @@ async function startServer(seed) {
       ["-Xmx2G", "-jar", "paper-server-launcher.jar", "nogui"],
       {
         cwd: SERVER_DIR,
-        stdio: ["pipe", "pipe", "inherit"],
+        stdio: ["pipe", "pipe", "pipe"],
       }
     );
+
+    // Pipe stdout to both file and our processing
+    serverProcess.stdout.pipe(logFile);
+    serverProcess.stderr.pipe(logFile);
+    serverProcess.stderr.pipe(process.stderr); // Keep console error visibility
 
     serverStatus = {
       isRunning: true,
@@ -188,6 +227,11 @@ async function startServer(seed) {
 
     serverProcess.stdout.on("data", (data) => {
       const output = data.toString();
+
+      // Add to log buffer for streaming
+      const lines = output.split("\n").filter((line) => line.trim());
+      lines.forEach((line) => addLogEntry(line));
+
       if (output.includes(`! For help, type "help"`)) {
         serverStatus.isInitialized = true;
         console.log("Minecraft server fully initialized");
@@ -199,6 +243,16 @@ async function startServer(seed) {
         serverStatus.pendingHeartbeat = false;
         console.log("Heartbeat successful");
       }
+    });
+
+    serverProcess.stderr.on("data", (data) => {
+      const output = data.toString();
+
+      // Add to log buffer for streaming
+      const lines = output.split("\n").filter((line) => line.trim());
+      lines.forEach((line) => addLogEntry(`[ERROR] ${line}`));
+
+      serverStatus.lastHealthCheck = new Date();
     });
   });
 
@@ -238,4 +292,7 @@ module.exports = {
   stopAndCleanup,
   getServerStatus,
   DYNMAP_PORT,
+  logEmitter,
+  addLogEntry,
+  getLogBuffer,
 };

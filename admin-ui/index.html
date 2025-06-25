@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body class="bg-gray-50 min-h-screen">
+    <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2"></div>
     <div class="max-w-4xl mx-auto p-8">
       <h1 class="text-3xl font-bold text-gray-800 mb-8">Draaft Admin Panel</h1>
 
@@ -106,156 +107,36 @@
           <div id="playersList" class="space-y-4"></div>
         </div>
       </div>
+
+      <div id="logPanel" class="bg-white rounded-lg shadow-md p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold text-gray-700">Server Logs</h2>
+          <div class="flex space-x-2">
+            <button
+              id="clearLogsBtn"
+              onclick="clearLogs()"
+              class="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+            >
+              Clear
+            </button>
+            <button
+              id="autoScrollBtn"
+              onclick="toggleAutoScroll()"
+              class="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              Auto-scroll: ON
+            </button>
+          </div>
+        </div>
+        <div
+          id="logContainer"
+          class="bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-lg h-96 overflow-y-auto"
+        >
+          <div id="logContent"></div>
+        </div>
+      </div>
     </div>
 
-    <script>
-      function updateStartButtonState() {
-        const seedInput = document.getElementById("seedInput");
-        const startButton = document.getElementById("startServerBtn");
-        startButton.disabled = !seedInput.value.trim();
-      }
-
-      async function startServer() {
-        const seed = document.getElementById("seedInput").value;
-        const res = await fetch("/start-server", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ seed }),
-        });
-        if (res.ok) {
-          alert("Server started");
-          loadPlayers();
-        } else {
-          const err = await res.json();
-          alert("Error: " + err.error);
-        }
-      }
-
-      async function stopServer() {
-        const res = await fetch("/stop-server", { method: "POST" });
-        if (res.ok) {
-          alert("Server stopped and cleaned up");
-          loadPlayers();
-        } else {
-          const err = await res.json();
-          alert("Error: " + err.error);
-        }
-      }
-
-      async function addPlayer() {
-        const name = document.getElementById("playerNameInput").value;
-        if (!name) return alert("Enter a name");
-
-        await fetch("/add-player", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name }),
-        });
-
-        document.getElementById("playerNameInput").value = "";
-        loadPlayers();
-      }
-
-      async function removePlayer(token) {
-        await fetch("/remove-player", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        });
-        loadPlayers();
-      }
-
-      async function loadPlayers() {
-        const res = await fetch("/players");
-        const players = await res.json();
-        const container = document.getElementById("playersList");
-        container.innerHTML = "";
-
-        players.forEach((player) => {
-          const el = document.createElement("div");
-          el.className = "bg-gray-50 rounded-lg p-4 border border-gray-200";
-          el.innerHTML = `
-            <div class="flex justify-between items-start mb-3">
-              <strong class="text-lg text-gray-800">${player.name}</strong>
-              <button 
-                onclick="removePlayer('${player.token}')"
-                class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-              >
-                Remove
-              </button>
-            </div>
-            <div class="space-y-2">
-              <div>
-                <span class="text-sm text-gray-600">Token:</span>
-                <code class="block mt-1 px-3 py-2 bg-gray-100 rounded text-sm font-mono">${player.token}</code>
-              </div>
-              <div>
-                <span class="text-sm text-gray-600">Dynmap URL:</span>
-                <code class="block mt-1 px-3 py-2 bg-gray-100 rounded text-sm font-mono">${window.location.origin}/map?token=${player.token}</code>
-              </div>
-            </div>
-          `;
-          container.appendChild(el);
-        });
-      }
-
-      function updateStatusIndicator(elementId, isActive) {
-        const element = document.getElementById(elementId);
-        element.className = `w-3 h-3 rounded-full ${
-          isActive ? "bg-green-500" : "bg-red-500"
-        }`;
-      }
-
-      function formatTimeAgo(timestamp) {
-        if (!timestamp) return "-";
-        const date = new Date(timestamp);
-        const now = new Date();
-        const diff = Math.floor((now - date) / 1000);
-
-        if (diff < 60) return `${diff}s ago`;
-        if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-        return `${Math.floor(diff / 3600)}h ago`;
-      }
-
-      function formatUptime(seconds) {
-        if (!seconds) return "-";
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor((seconds % 3600) / 60);
-        const secs = seconds % 60;
-        return `${hours}h ${minutes}m ${secs}s`;
-      }
-
-      async function updateServerStatus() {
-        try {
-          const res = await fetch("/health");
-          const status = await res.json();
-
-          updateStatusIndicator("runningStatus", status.isRunning);
-          updateStatusIndicator("initializedStatus", status.isInitialized);
-          updateStatusIndicator("responsiveStatus", status.isResponsive);
-
-          document.getElementById("uptime").textContent = formatUptime(
-            status.uptime
-          );
-          document.getElementById("lastHealthCheck").textContent =
-            formatTimeAgo(status.lastHealthCheck);
-          document.getElementById("lastHeartbeat").textContent = formatTimeAgo(
-            status.lastHeartbeat
-          );
-        } catch (err) {
-          console.error("Failed to fetch server status:", err);
-          updateStatusIndicator("runningStatus", false);
-          updateStatusIndicator("initializedStatus", false);
-          updateStatusIndicator("responsiveStatus", false);
-        }
-      }
-
-      // Update status every 2 seconds
-      setInterval(updateServerStatus, 10000);
-      // Initial status check
-      updateServerStatus();
-
-      loadPlayers();
-    </script>
+    <script src="admin.js"></script>
   </body>
 </html>

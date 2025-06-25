@@ -12,6 +12,7 @@ public class DynmapMarkerListener extends DynmapCommonAPIListener {
 
     @Override
     public void apiEnabled(DynmapCommonAPI api) {
+        plugin.LOGGER.info("Dynmap API enabled");
         plugin.onDynmapReady(api);
     }
 }

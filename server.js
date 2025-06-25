@@ -4,11 +4,14 @@ const path = require("path");
 const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
 const { v4: uuidv4 } = require("uuid");
+const WebSocket = require("ws");
 const {
   startServer,
   stopAndCleanup,
   getServerStatus,
   DYNMAP_PORT,
+  logEmitter,
+  getLogBuffer,
 } = require("./serverManager");
 
 // Constants and Configuration
@@ -20,6 +23,50 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.static("./admin-ui"));
+
+// Create HTTP server
+const server = require("http").createServer(app);
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ server });
+
+// WebSocket connection management
+wss.on("connection", (ws) => {
+  console.log("WebSocket client connected");
+
+  // Send initial log buffer
+  const initialLogs = getLogBuffer();
+  ws.send(
+    JSON.stringify({
+      type: "initial_logs",
+      logs: initialLogs,
+    })
+  );
+
+  // Listen for new log entries
+  const logHandler = (logEntry) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(
+        JSON.stringify({
+          type: "log_entry",
+          log: logEntry,
+        })
+      );
+    }
+  };
+
+  logEmitter.on("log", logHandler);
+
+  ws.on("close", () => {
+    console.log("WebSocket client disconnected");
+    logEmitter.off("log", logHandler);
+  });
+
+  ws.on("error", (error) => {
+    console.error("WebSocket error:", error);
+    logEmitter.off("log", logHandler);
+  });
+});
 
 // Database Management
 let db = null;
@@ -71,6 +118,13 @@ app.post("/stop-server", async (req, res) => {
 
 app.get("/health", (req, res) => {
   res.json(getServerStatus());
+});
+
+app.get("/logs", (req, res) => {
+  res.json({
+    logs: getLogBuffer(),
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Player Management Routes
@@ -137,6 +191,6 @@ process.on("SIGTERM", () => process.exit());
 
 // Initialize and Start Server
 db = initializeDatabase();
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`Admin server running on http://localhost:${PORT}`);
 });
