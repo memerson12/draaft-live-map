@@ -1,0 +1,16 @@
+{"sets": {"live_map_players": {"hide": false,"circles": {}
+,"areas": {}
+,"label": "Live Map Players","markers": {"plr_0b878885-c9c6-48f2-9f24-51ff30f57923": {"markup": false,"x": 0.00,"icon": "default","y": 0.00,"dim": "16x16","z": 0.00,"label": "sadfsadf"}
+,"plr_3741b49a-442a-4a4d-b081-ee0b5a433ce0": {"markup": false,"x": 0.00,"icon": "default","y": 0.00,"dim": "16x16","z": 0.00,"label": "asdfasdf"}
+,"plr_d2ca0ec6-9eb6-4b8d-8f79-8daebfb1551c": {"markup": false,"x": 0.00,"icon": "default","y": 0.00,"dim": "16x16","z": 0.00,"label": "asdfsadf"}
+}
+,"lines": {}
+,"layerprio": 0}
+,"markers": {"hide": false,"circles": {}
+,"areas": {}
+,"label": "Markers","markers": {"_spawn_world": {"markup": false,"x": 128.00,"icon": "world","y": 63.00,"dim": "16x16","z": 96.00,"label": "Spawn"}
+}
+,"lines": {}
+,"layerprio": 0}
+}
+,"timestamp": 1750814846362}

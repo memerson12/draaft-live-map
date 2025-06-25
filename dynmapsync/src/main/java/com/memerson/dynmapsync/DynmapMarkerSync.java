@@ -2,6 +2,10 @@ package com.memerson.dynmapsync;
 
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.world.WorldLoadEvent;
+import org.bukkit.Bukkit;
 import org.dynmap.DynmapCommonAPI;
 import org.dynmap.DynmapCommonAPIListener;
 import org.dynmap.markers.Marker;
@@ -16,7 +20,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Logger;
 
-public class DynmapMarkerSync extends JavaPlugin {
+public class DynmapMarkerSync extends JavaPlugin implements Listener {
 
     public final Logger LOGGER = getLogger();
 
@@ -24,17 +28,59 @@ public class DynmapMarkerSync extends JavaPlugin {
     private MarkerSet markerSet;
     private Connection dbConnection;
     private final String MARKER_SET_ID = "live_map_players";
+    private boolean chunkyCommandExecuted = false;
 
     @Override
     public void onEnable() {
         initDatabase();
         DynmapCommonAPIListener.register(new DynmapMarkerListener(this));
+        getServer().getPluginManager().registerEvents(this, this);
         LOGGER.info("DynmapMarkerSync enabled");
+
+        // Check if world is already loaded and execute Chunky command
+        if (getServer().getWorld("world") != null) {
+            LOGGER.info("World is already loaded, executing Chunky command immediately");
+            executeChunkyCommand();
+        } else {
+            LOGGER.info("World not yet loaded, waiting for WorldLoadEvent");
+        }
+    }
+
+    private void executeChunkyCommand() {
+        if (chunkyCommandExecuted) {
+            return;
+        }
+
+        chunkyCommandExecuted = true;
+        LOGGER.info("Executing Chunky command...");
+
+        // Execute the command on the main thread after a delay
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // Execute the Chunky command
+                boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
+                        "chunky start world square 0 0 3000");
+                if (success) {
+                    LOGGER.info("Chunky command executed successfully");
+                } else {
+                    LOGGER.warning("Failed to execute Chunky command");
+                }
+            }
+        }.runTaskLater(this, 40L); // 2 second delay (40 ticks = 2 seconds)
+    }
+
+    @EventHandler
+    public void onWorldLoad(WorldLoadEvent event) {
+        LOGGER.info("DynmapMarkerSync onWorldLoad");
+        LOGGER.info(event.getWorld().getName());
+        if (!chunkyCommandExecuted && event.getWorld().getName().equals("world")) {
+            executeChunkyCommand();
+        }
     }
 
     public void onDynmapReady(DynmapCommonAPI api) {
-//        api.triggerRenderOfVolume("world", -1000, 0, -1000, 1000, 255, 1000);
-
+        api.triggerRenderOfVolume("world", -1000, 0, -1000, 1000, 255, 1000);
 
         markerAPI = api.getMarkerAPI();
         if (markerAPI == null) {
@@ -78,7 +124,7 @@ public class DynmapMarkerSync extends JavaPlugin {
         if (markerSet == null || dbConnection == null)
             return;
         try (Statement stmt = dbConnection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT token, name, x, y, z FROM players")) {
+                ResultSet rs = stmt.executeQuery("SELECT token, name, x, y, z FROM players")) {
 
             Map<String, Marker> markersMap = new HashMap<>();
             for (Marker m : markerSet.getMarkers()) {

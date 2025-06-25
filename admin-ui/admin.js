@@ -53,6 +53,7 @@ async function stopServer() {
   if (res.ok) {
     showToast("Server stopped and cleaned up", "success");
     loadPlayers();
+    clearLogs();
   } else {
     const err = await res.json();
     showToast(`Error: ${err.error}`, "error");
@@ -126,16 +127,9 @@ function updateStatusIndicator(elementId, isActive) {
   }`;
 }
 
-function formatTimeAgo(timestamp) {
-  if (!timestamp) return "-";
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diff = Math.floor((now - date) / 1000);
-
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  return `${Math.floor(diff / 3600)}h ago`;
-}
+let lastServerUptime = 0;
+let lastUptimeSync = null;
+let uptimeInterval = null;
 
 function formatUptime(seconds) {
   if (!seconds) return "-";
@@ -145,6 +139,19 @@ function formatUptime(seconds) {
   return `${hours}h ${minutes}m ${secs}s`;
 }
 
+function startUptimeTicker() {
+  if (uptimeInterval) clearInterval(uptimeInterval);
+  uptimeInterval = setInterval(() => {
+    if (lastUptimeSync) {
+      const now = Date.now();
+      const elapsed = Math.floor((now - lastUptimeSync) / 1000);
+      document.getElementById("uptime").textContent = formatUptime(
+        lastServerUptime + elapsed
+      );
+    }
+  }, 1000);
+}
+
 async function updateServerStatus() {
   try {
     const res = await fetch("/health");
@@ -152,20 +159,17 @@ async function updateServerStatus() {
 
     updateStatusIndicator("runningStatus", status.isRunning);
     updateStatusIndicator("initializedStatus", status.isInitialized);
-    updateStatusIndicator("responsiveStatus", status.isResponsive);
 
+    lastServerUptime = status.uptime;
+    lastUptimeSync = Date.now();
     document.getElementById("uptime").textContent = formatUptime(status.uptime);
-    document.getElementById("lastHealthCheck").textContent = formatTimeAgo(
-      status.lastHealthCheck
-    );
-    document.getElementById("lastHeartbeat").textContent = formatTimeAgo(
-      status.lastHeartbeat
-    );
+    startUptimeTicker();
   } catch (err) {
     console.error("Failed to fetch server status:", err);
     updateStatusIndicator("runningStatus", false);
     updateStatusIndicator("initializedStatus", false);
-    updateStatusIndicator("responsiveStatus", false);
+    document.getElementById("uptime").textContent = "-";
+    if (uptimeInterval) clearInterval(uptimeInterval);
   }
 }
 

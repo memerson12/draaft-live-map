@@ -38,14 +38,10 @@ function getLogBuffer() {
 
 // Server State Management
 let serverProcess = null;
-let heartbeatInterval = null;
 let serverStatus = {
   isRunning: false,
   isInitialized: false,
   startTime: null,
-  lastHealthCheck: null,
-  lastHeartbeat: null,
-  pendingHeartbeat: false,
 };
 
 // Minecraft Server Configuration
@@ -68,24 +64,6 @@ enable-rcon=false
 `;
 }
 
-// Server Health Monitoring
-function sendHeartbeat() {
-  if (
-    serverProcess &&
-    serverStatus.isRunning &&
-    !serverStatus.pendingHeartbeat
-  ) {
-    serverProcess.stdin.write("list\n");
-    serverStatus.pendingHeartbeat = true;
-    setTimeout(() => {
-      if (serverStatus.pendingHeartbeat) {
-        serverStatus.pendingHeartbeat = false;
-        console.log("Heartbeat timeout - no response received");
-      }
-    }, 5000);
-  }
-}
-
 // Server Process Management
 async function stopAndCleanup() {
   console.log("Stopping and cleaning up server...");
@@ -94,14 +72,8 @@ async function stopAndCleanup() {
     serverProcess = null;
   }
 
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
-    heartbeatInterval = null;
-  }
-
   serverStatus.isRunning = false;
   serverStatus.isInitialized = false;
-  serverStatus.pendingHeartbeat = false;
 
   await new Promise((resolve) => setTimeout(resolve, 500));
 
@@ -130,10 +102,10 @@ async function stopAndCleanup() {
 
 async function startServer(seed) {
   await fs.copy(TEMPLATE_DIR, SERVER_DIR);
-  // await fs.writeFile(
-  //   path.join(SERVER_DIR, "server.properties"),
-  //   generateServerProperties(seed)
-  // );
+  await fs.writeFile(
+    path.join(SERVER_DIR, "server.properties"),
+    generateServerProperties(seed)
+  );
 
   // Create log file stream
   const logFile = fs.createWriteStream(path.join(SERVER_DIR, "server.log"), {
@@ -150,7 +122,34 @@ async function startServer(seed) {
 
     serverProcess = spawn(
       "java",
-      ["-Xmx2G", "-jar", "paper-server-launcher.jar", "nogui"],
+      [
+        "-Xms8192M",
+        "-Xmx8192M",
+        "-XX:+UseG1GC",
+        "-XX:+ParallelRefProcEnabled",
+        "-XX:MaxGCPauseMillis=200",
+        "-XX:+UnlockExperimentalVMOptions",
+        "-XX:+DisableExplicitGC",
+        "-XX:+AlwaysPreTouch",
+        "-XX:G1HeapWastePercent=5",
+        "-XX:G1MixedGCCountTarget=4",
+        "-XX:InitiatingHeapOccupancyPercent=15",
+        "-XX:G1MixedGCLiveThresholdPercent=90",
+        "-XX:G1RSetUpdatingPauseTimePercent=5",
+        "-XX:SurvivorRatio=32",
+        "-XX:+PerfDisableSharedMem",
+        "-XX:MaxTenuringThreshold=1",
+        "-Dusing.aikars.flags=https://mcflags.emc.gs",
+        "-Daikars.new.flags=true",
+        "-XX:G1NewSizePercent=30",
+        "-XX:G1MaxNewSizePercent=40",
+        "-XX:G1HeapRegionSize=8M",
+        "-XX:G1ReservePercent=20",
+        "-DPaper.WorkerThreadCount=12",
+        "-jar",
+        "paper-server-launcher.jar",
+        "--nogui",
+      ],
       {
         cwd: SERVER_DIR,
         stdio: ["pipe", "pipe", "pipe"],
@@ -166,12 +165,7 @@ async function startServer(seed) {
       isRunning: true,
       isInitialized: false,
       startTime: new Date(),
-      lastHealthCheck: new Date(),
-      lastHeartbeat: new Date(),
-      pendingHeartbeat: false,
     };
-
-    heartbeatInterval = setInterval(sendHeartbeat, 15000);
 
     // Function to check if server is initialized
     const checkInitialization = () => {
@@ -190,11 +184,6 @@ async function startServer(seed) {
       serverProcess = null;
       serverStatus.isRunning = false;
       serverStatus.isInitialized = false;
-      serverStatus.pendingHeartbeat = false;
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-        heartbeatInterval = null;
-      }
       if (initializationCheckInterval) {
         clearInterval(initializationCheckInterval);
         initializationCheckInterval = null;
@@ -211,11 +200,6 @@ async function startServer(seed) {
         serverProcess = null;
         serverStatus.isRunning = false;
         serverStatus.isInitialized = false;
-        serverStatus.pendingHeartbeat = false;
-        if (heartbeatInterval) {
-          clearInterval(heartbeatInterval);
-          heartbeatInterval = null;
-        }
         if (initializationCheckInterval) {
           clearInterval(initializationCheckInterval);
           initializationCheckInterval = null;
@@ -236,13 +220,6 @@ async function startServer(seed) {
         serverStatus.isInitialized = true;
         console.log("Minecraft server fully initialized");
       }
-      serverStatus.lastHealthCheck = new Date();
-
-      if (serverStatus.pendingHeartbeat && output.includes("players online")) {
-        serverStatus.lastHeartbeat = new Date();
-        serverStatus.pendingHeartbeat = false;
-        console.log("Heartbeat successful");
-      }
     });
 
     serverProcess.stderr.on("data", (data) => {
@@ -251,8 +228,6 @@ async function startServer(seed) {
       // Add to log buffer for streaming
       const lines = output.split("\n").filter((line) => line.trim());
       lines.forEach((line) => addLogEntry(`[ERROR] ${line}`));
-
-      serverStatus.lastHealthCheck = new Date();
     });
   });
 
@@ -265,25 +240,11 @@ function getServerStatus() {
     ? (currentTime - serverStatus.startTime) / 1000
     : 0;
 
-  const isResponsive =
-    serverStatus.lastHealthCheck &&
-    currentTime - serverStatus.lastHealthCheck < 30000;
-
-  const isHeartbeatResponsive =
-    serverStatus.lastHeartbeat &&
-    currentTime - serverStatus.lastHeartbeat < 30000 &&
-    !serverStatus.pendingHeartbeat;
-
   return {
     isRunning: serverStatus.isRunning,
     isInitialized: serverStatus.isInitialized,
-    isResponsive,
-    isHeartbeatResponsive,
     uptime: Math.floor(uptime),
     startTime: serverStatus.startTime,
-    lastHealthCheck: serverStatus.lastHealthCheck,
-    lastHeartbeat: serverStatus.lastHeartbeat,
-    pendingHeartbeat: serverStatus.pendingHeartbeat,
   };
 }
 
