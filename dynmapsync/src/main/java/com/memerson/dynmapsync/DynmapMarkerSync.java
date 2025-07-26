@@ -20,6 +20,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Logger;
 
+import org.popcraft.chunky.Chunky;
+import org.popcraft.chunky.ChunkyProvider;
+
 public class DynmapMarkerSync extends JavaPlugin implements Listener {
 
     public final Logger LOGGER = getLogger();
@@ -52,15 +55,42 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
         }
 
         chunkyCommandExecuted = true;
-        LOGGER.info("Executing Chunky command...");
 
-        // Execute the command on the main thread after a delay
         new BukkitRunnable() {
             @Override
             public void run() {
-                // Execute the Chunky command
+                // Check if Chunky is installed
+                if (Bukkit.getPluginManager().getPlugin("Chunky") == null) {
+                    LOGGER.warning("Chunky plugin not found. Cannot generate world.");
+                    return;
+                }
+
+                /*
+                 * To check if we have already generated all the chunks we need,
+                 * we check the region files to see if the following exists:
+                 * - r.-6.5.mca -> -3000, 3000
+                 * - r.5.5.mca -> 3000, 3000
+                 * - r.5.-6.mca -> 3000, -3000
+                 * - r.-6.-6.mca -> -3000, -3000
+                 * 
+                 */
+                File worldContainer = Bukkit.getWorldContainer();
+                File regionDir = new File(worldContainer, "world/region");
+
+                File r1 = new File(regionDir, "r.-6.5.mca");
+                File r2 = new File(regionDir, "r.5.5.mca");
+                File r3 = new File(regionDir, "r.5.-6.mca");
+                File r4 = new File(regionDir, "r.-6.-6.mca");
+
+                if (r1.exists() && r2.exists() && r3.exists() && r4.exists()) {
+                    LOGGER.info("World already generated, skipping chunky command");
+                    return;
+                }
+
+                LOGGER.info("Executing Chunky command...");
                 boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
                         "chunky start world square 0 0 3000");
+
                 if (success) {
                     LOGGER.info("Chunky command executed successfully");
                 } else {
@@ -80,7 +110,10 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
     }
 
     public void onDynmapReady(DynmapCommonAPI api) {
-        api.triggerRenderOfVolume("world", -1000, 0, -1000, 1000, 255, 1000);
+//        api.triggerRenderOfVolume("world", -1000, 0, -1000, 1000, 255, 1000);
+        LOGGER.info(String.valueOf(api.getPauseFullRadiusRenders()));
+        api.setPauseFullRadiusRenders(false);
+        LOGGER.info(String.valueOf(api.getPauseFullRadiusRenders()));
 
         markerAPI = api.getMarkerAPI();
         if (markerAPI == null) {
@@ -102,7 +135,7 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
             LOGGER.info("Initializing database...");
             LOGGER.info(System.getProperty("user.dir"));
             Path path = Paths.get(System.getProperty("user.dir"));
-            File dbFile = new File(path.getParent().toAbsolutePath().toFile(), "players.db");
+            File dbFile = new File(path.getParent().getParent().toAbsolutePath().toFile(), "players.db");
 
             LOGGER.info("Loading players.db from " + dbFile.getAbsolutePath());
             dbConnection = DriverManager.getConnection("jdbc:sqlite:" + dbFile.getAbsolutePath());

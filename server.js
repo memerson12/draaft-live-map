@@ -5,18 +5,23 @@ const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
 const { v4: uuidv4 } = require("uuid");
 const WebSocket = require("ws");
+const fs = require("fs-extra");
 const {
-  startServer,
-  stopAndCleanup,
+  initializeManager,
+  createWorldFiles,
+  startWorld,
+  stopWorld,
+  deleteWorld,
   getServerStatus,
-  DYNMAP_PORT,
   logEmitter,
   getLogBuffer,
+  sendCommand,
 } = require("./serverManager");
 
 // Constants and Configuration
 const PORT = 4000;
 const DB_PATH = path.join(__dirname, "players.db");
+const WORLDS_DIR = path.join(__dirname, "worlds");
 
 // Initialize Express app
 const app = express();
@@ -34,22 +39,23 @@ const wss = new WebSocket.Server({ server });
 wss.on("connection", (ws) => {
   console.log("WebSocket client connected");
 
-  // Send initial log buffer
+  // Send initial log buffers for all running worlds
   const initialLogs = getLogBuffer();
   ws.send(
     JSON.stringify({
       type: "initial_logs",
-      logs: initialLogs,
+      logs: initialLogs, // this is now a map of worldId -> logs
     })
   );
 
   // Listen for new log entries
   const logHandler = (logEntry) => {
+    // logEntry is {worldId, log}
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(
         JSON.stringify({
           type: "log_entry",
-          log: logEntry,
+          ...logEntry,
         })
       );
     }
@@ -71,6 +77,7 @@ wss.on("connection", (ws) => {
 // Database Management
 let db = null;
 function initializeDatabase() {
+  fs.ensureDirSync(WORLDS_DIR);
   const db = new sqlite3.Database(DB_PATH);
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS players (
@@ -81,53 +88,119 @@ function initializeDatabase() {
       y REAL DEFAULT 0,
       z REAL DEFAULT 0
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS worlds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      seed TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'STOPPED', -- STOPPED, STARTING, RUNNING, STOPPING, ERROR
+      path TEXT UNIQUE NOT NULL,
+      server_port INTEGER UNIQUE,
+      dynmap_port INTEGER UNIQUE
+    )`);
   });
   return db;
 }
 
-// API Routes
-app.post("/start-server", async (req, res) => {
-  const { seed } = req.body;
-  if (!seed) return res.status(400).json({ error: "Missing seed" });
+// --- World Management API ---
+app.get("/api/worlds", (req, res) => {
+  db.all(`SELECT * FROM worlds`, [], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
 
+app.post("/api/worlds", (req, res) => {
+  const { name, seed } = req.body;
+  if (!name || !seed) {
+    return res.status(400).json({ error: "Missing name or seed" });
+  }
+
+  db.get(
+    "SELECT MAX(server_port) as max_server, MAX(dynmap_port) as max_dynmap FROM worlds",
+    async (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const server_port = row && row.max_server ? row.max_server + 1 : 25565;
+      const dynmap_port = row && row.max_dynmap ? row.max_dynmap + 1 : 8123;
+      const worldPath = path.join(WORLDS_DIR, uuidv4());
+
+      const worldData = {
+        name,
+        seed,
+        status: "CREATING",
+        path: worldPath,
+        server_port,
+        dynmap_port,
+      };
+
+      try {
+        await createWorldFiles(worldData);
+
+        db.run(
+          `INSERT INTO worlds (name, seed, status, path, server_port, dynmap_port) VALUES (?, ?, 'STOPPED', ?, ?, ?)`,
+          [name, seed, worldPath, server_port, dynmap_port],
+          function (err) {
+            if (err) return res.status(500).json({ error: err.message });
+            res.status(201).json({ id: this.lastID, ...worldData });
+          }
+        );
+      } catch (e) {
+        console.error("Failed to create world files", e);
+        res.status(500).json({ error: "Failed to create world files" });
+      }
+    }
+  );
+});
+
+app.post("/api/worlds/:id/start", async (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT * FROM worlds WHERE id = ?`, [id], async (err, world) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!world) return res.status(404).json({ error: "World not found" });
+
+    try {
+      await startWorld(world, db);
+      res.json({ status: "starting" });
+    } catch (e) {
+      console.error(`Failed to start world ${id}:`, e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+});
+
+app.post("/api/worlds/:id/stop", async (req, res) => {
+  const { id } = req.params;
   try {
-    await startServer(seed);
-    res.json({
-      status: "started",
-      dynmapUrl: `http://localhost:${DYNMAP_PORT}`,
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: "Failed to start server",
-      details: err.message,
-    });
+    await stopWorld(id, db);
+    res.json({ status: "stopping" });
+  } catch (e) {
+    console.error(`Failed to stop world ${id}:`, e);
+    res.status(500).json({ error: e.message });
   }
 });
 
-app.post("/stop-server", async (req, res) => {
-  try {
-    await stopAndCleanup();
-    res.json({ status: "stopped and cleaned up" });
-  } catch (err) {
-    res.status(500).json({
-      error: "Server stopped, but cleanup failed",
-      details: err.message,
-    });
-  }
+app.delete("/api/worlds/:id", async (req, res) => {
+  const { id } = req.params;
+  db.get(`SELECT * FROM worlds WHERE id = ?`, [id], async (err, world) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!world) return res.status(404).json({ error: "World not found" });
+
+    try {
+      await deleteWorld(world, db);
+      res.json({ status: "deleted" });
+    } catch (e) {
+      console.error(`Failed to delete world ${id}:`, e);
+      res.status(500).json({ error: e.message });
+    }
+  });
 });
 
 app.get("/health", (req, res) => {
   res.json(getServerStatus());
 });
 
-app.get("/logs", (req, res) => {
-  res.json({
-    logs: getLogBuffer(),
-    timestamp: new Date().toISOString(),
-  });
-});
-
-// Player Management Routes
+// Player Management Routes (unchanged)
 app.post("/add-player", (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: "Missing name" });
@@ -182,15 +255,29 @@ app.get("/track/:token", (req, res) => {
   );
 });
 
+app.post("/send-command", (req, res) => {
+  const { command, worldId } = req.body;
+  if (!command || !worldId)
+    return res.status(400).json({ error: "Missing command or worldId" });
+  try {
+    sendCommand(command, worldId);
+    res.json({ status: "sent" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Process Cleanup
 process.on("exit", () => {
-  stopAndCleanup();
+  // gracefully stop all running worlds on exit
+  stopWorld(-1, db); // special case to stop all
 });
 process.on("SIGINT", () => process.exit());
 process.on("SIGTERM", () => process.exit());
 
 // Initialize and Start Server
 db = initializeDatabase();
+initializeManager(db);
 server.listen(PORT, () => {
   console.log(`Admin server running on http://localhost:${PORT}`);
 });

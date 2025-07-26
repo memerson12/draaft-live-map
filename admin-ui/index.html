@@ -5,82 +5,126 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Draaft Admin Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      .status-dot {
+        width: 0.75rem;
+        height: 0.75rem;
+        border-radius: 9999px;
+        display: inline-block;
+      }
+      .status-RUNNING {
+        background-color: #4ade80; /* green-400 */
+      }
+      .status-STARTING {
+        background-color: #facc15; /* yellow-400 */
+      }
+      .status-STOPPED {
+        background-color: #f87171; /* red-400 */
+      }
+      .status-STOPPING {
+        background-color: #fb923c; /* orange-400 */
+      }
+      .status-ERROR {
+        background-color: #ef4444; /* red-600 */
+      }
+      .status-CREATING {
+        background-color: #60a5fa; /* blue-400 */
+      }
+      .status-UNKNOWN {
+        background-color: #9ca3af; /* gray-400 */
+      }
+    </style>
   </head>
-  <body class="bg-gray-50 min-h-screen">
+  <body class="bg-gray-100 min-h-screen">
     <div id="toastContainer" class="fixed top-4 right-4 z-50 space-y-2"></div>
     <div class="max-w-7xl mx-auto p-8">
-      <h1 class="text-3xl font-bold text-gray-800 mb-8">Draaft Admin Panel</h1>
+      <h1 class="text-4xl font-extrabold text-gray-800 mb-8">
+        Draaft Live Control
+      </h1>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-        <div class="space-y-8">
-          <div id="statusPanel" class="bg-white rounded-lg shadow-md p-6">
-            <h2 class="text-xl font-semibold text-gray-700 mb-4">
-              Server Status
+      <div class="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
+        <!-- Left Column: World Management & Player Management -->
+        <div class="xl:col-span-1 space-y-8">
+          <div
+            id="worldManagementPanel"
+            class="bg-white rounded-lg shadow-lg p-6"
+          >
+            <h2 class="text-2xl font-bold text-gray-700 mb-6">
+              World Management
             </h2>
-            <div class="grid grid-cols-2 gap-4">
-              <div class="space-y-2">
-                <div class="flex items-center space-x-2">
-                  <div
-                    id="runningStatus"
-                    class="w-3 h-3 rounded-full bg-gray-300"
-                  ></div>
-                  <span class="text-gray-700">Running</span>
-                </div>
-                <div class="flex items-center space-x-2">
-                  <div
-                    id="initializedStatus"
-                    class="w-3 h-3 rounded-full bg-gray-300"
-                  ></div>
-                  <span class="text-gray-700">Initialized</span>
-                </div>
-              </div>
-              <div class="space-y-2">
-                <div class="text-sm text-gray-600">
-                  <span class="font-medium">Uptime:</span>
-                  <span id="uptime">-</span>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <div id="controls" class="bg-white rounded-lg shadow-md p-6">
-            <h2 class="text-xl font-semibold text-gray-700 mb-4">
-              Server Controls
-            </h2>
-            <div class="space-y-4">
-              <div>
+            <!-- Create New World Form -->
+            <div class="mb-6 p-4 border border-gray-200 rounded-lg">
+              <h3 class="font-semibold text-lg mb-3">Create New World</h3>
+              <div class="space-y-3">
                 <input
-                  id="seedInput"
+                  id="worldNameInput"
+                  placeholder="World Name"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  id="worldSeedInput"
                   placeholder="World Seed"
                   class="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  oninput="updateStartButtonState()"
                 />
-              </div>
-              <div class="flex space-x-4">
                 <button
-                  id="startServerBtn"
-                  onclick="startServer()"
-                  class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
-                  disabled
+                  id="createWorldBtn"
+                  onclick="createWorld()"
+                  class="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
                 >
-                  Start Server
-                </button>
-                <button
-                  onclick="stopServer()"
-                  class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
-                >
-                  Stop Server
+                  Create World
                 </button>
               </div>
+            </div>
+
+            <!-- Worlds List -->
+            <div id="worldsList" class="space-y-4">
+              <!-- World items will be dynamically inserted here -->
             </div>
           </div>
 
           <div
+            id="playerPanel"
+            class="bg-white rounded-lg shadow-lg p-6 self-start"
+          >
+            <h2 class="text-2xl font-bold text-gray-700 mb-6">
+              Player Management
+            </h2>
+            <div class="space-y-4">
+              <div class="flex space-x-4">
+                <input
+                  id="playerNameInput"
+                  placeholder="Player Name"
+                  class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onclick="addPlayer()"
+                  class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                >
+                  Add Player
+                </button>
+              </div>
+              <div id="playersList" class="space-y-4"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Logs -->
+        <div class="xl:col-span-2 space-y-8">
+          <div
             id="logPanel"
-            class="bg-white rounded-lg shadow-md p-6 flex flex-col"
+            class="bg-white rounded-lg shadow-lg p-6 flex flex-col"
           >
             <div class="flex justify-between items-center mb-4">
-              <h2 class="text-xl font-semibold text-gray-700">Server Logs</h2>
+              <div class="flex items-center space-x-4">
+                <h2 class="text-2xl font-bold text-gray-700">Server Logs</h2>
+                <select
+                  id="logSelector"
+                  class="px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <!-- Options will be dynamically added here -->
+                </select>
+              </div>
               <div class="flex space-x-2">
                 <button
                   id="clearLogsBtn"
@@ -100,35 +144,24 @@
             </div>
             <div
               id="logContainer"
-              class="bg-gray-900 text-green-400 font-mono text-sm p-4 rounded-lg min-h-[24rem] max-h-[32rem] overflow-y-auto"
+              class="bg-gray-900 text-white font-mono text-sm p-4 rounded-lg min-h-[48rem] max-h-[64rem] overflow-y-auto"
             >
               <div id="logContent"></div>
             </div>
-          </div>
-        </div>
-
-        <div
-          id="playerPanel"
-          class="bg-white rounded-lg shadow-md p-6 self-start"
-        >
-          <h2 class="text-xl font-semibold text-gray-700 mb-4">
-            Player Management
-          </h2>
-          <div class="space-y-4">
-            <div class="flex space-x-4">
+            <div class="flex space-x-2 mt-4">
               <input
-                id="playerNameInput"
-                placeholder="Player Name"
+                id="commandInput"
+                placeholder="Type server command for selected world..."
                 class="flex-1 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                onkeydown="if(event.key==='Enter'){sendCommand();}"
               />
               <button
-                onclick="addPlayer()"
-                class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                onclick="sendCommand()"
+                class="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
               >
-                Add Player
+                Send
               </button>
             </div>
-            <div id="playersList" class="space-y-4"></div>
           </div>
         </div>
       </div>

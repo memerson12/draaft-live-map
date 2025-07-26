@@ -1,8 +1,9 @@
-function updateStartButtonState() {
-  const seedInput = document.getElementById("seedInput");
-  const startButton = document.getElementById("startServerBtn");
-  startButton.disabled = !seedInput.value.trim();
-}
+// State
+let worlds = [];
+let players = [];
+let logs = new Map(); // worldId -> [log entries]
+let selectedLogWorldId = null;
+let autoScroll = true;
 
 // Toast functionality
 function showToast(message, type = "info") {
@@ -31,35 +32,136 @@ function showToast(message, type = "info") {
   }, 3000);
 }
 
-async function startServer() {
-  const seed = document.getElementById("seedInput").value;
-  showToast("Starting server...", "info");
-  const res = await fetch("/start-server", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ seed }),
+// --- World Management ---
+async function createWorld() {
+  const nameInput = document.getElementById("worldNameInput");
+  const seedInput = document.getElementById("worldSeedInput");
+  const name = nameInput.value.trim();
+  const seed = seedInput.value.trim();
+
+  if (!name || !seed) {
+    showToast("Please enter both a name and a seed.", "error");
+    return;
+  }
+
+  showToast(`Creating world '${name}'...`, "info");
+  try {
+    const res = await fetch("/api/worlds", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, seed }),
+    });
+    if (res.ok) {
+      showToast("World created successfully!", "success");
+      nameInput.value = "";
+      seedInput.value = "";
+      loadWorlds();
+    } else {
+      const err = await res.json();
+      showToast(`Error creating world: ${err.error}`, "error");
+    }
+  } catch (err) {
+    showToast(`Network error: ${err.message}`, "error");
+  }
+}
+
+async function startWorld(worldId) {
+  showToast(`Starting world ${worldId}...`, "info");
+  await fetch(`/api/worlds/${worldId}/start`, { method: "POST" });
+  // Status will be updated via websocket/polling
+}
+
+async function stopWorld(worldId) {
+  showToast(`Stopping world ${worldId}...`, "info");
+  await fetch(`/api/worlds/${worldId}/stop`, { method: "POST" });
+}
+
+async function deleteWorld(worldId) {
+  if (!confirm(`Are you sure you want to permanently delete world ${worldId}?`))
+    return;
+
+  showToast(`Deleting world ${worldId}...`, "info");
+  await fetch(`/api/worlds/${worldId}/delete`, { method: "DELETE" });
+  // The list will refresh, removing the deleted world
+}
+
+async function loadWorlds() {
+  try {
+    const res = await fetch("/api/worlds");
+    worlds = await res.json();
+    renderWorlds();
+    updateLogSelector();
+  } catch (err) {
+    console.error("Failed to load worlds:", err);
+    showToast("Could not load worlds.", "error");
+  }
+}
+
+function renderWorlds() {
+  const container = document.getElementById("worldsList");
+  container.innerHTML = "";
+
+  if (worlds.length === 0) {
+    container.innerHTML = `<p class="text-gray-500 italic">No worlds created yet.</p>`;
+    return;
+  }
+
+  worlds.forEach((world) => {
+    const isRunning = world.status === "RUNNING";
+    const isStopped = world.status === "STOPPED";
+    const isWorking =
+      world.status === "STARTING" || world.status === "STOPPING";
+
+    const el = document.createElement("div");
+    el.className = "bg-gray-50 rounded-lg p-4 border border-gray-200";
+    el.innerHTML = `
+      <div class="flex justify-between items-center mb-3">
+        <div class="flex items-center space-x-3">
+          <span class="status-dot status-${world.status || "UNKNOWN"}"></span>
+          <strong class="text-lg text-gray-800">${world.name}</strong>
+        </div>
+        <span class="text-sm font-mono text-gray-500">#${world.id}</span>
+      </div>
+      <div class="text-sm text-gray-600 mb-4">
+        <p>Status: <span class="font-semibold">${world.status}</span></p>
+        <p>Seed: <code class="font-mono bg-gray-200 px-1 rounded">${
+          world.seed
+        }</code></p>
+        <p>Server: <code class="font-mono bg-gray-200 px-1 rounded">localhost:${
+          world.server_port
+        }</code></p>
+        <p>Dynmap: <a href="http://localhost:${
+          world.dynmap_port
+        }" target="_blank" class="text-blue-600 hover:underline">http://localhost:${
+      world.dynmap_port
+    }</a></p>
+      </div>
+      <div class="flex space-x-2">
+        <button 
+          onclick="startWorld(${world.id})" 
+          class="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50"
+          ${!isStopped ? "disabled" : ""}>
+          Start
+        </button>
+        <button 
+          onclick="stopWorld(${world.id})"
+          class="px-3 py-1 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700 disabled:opacity-50"
+           ${!isRunning ? "disabled" : ""}>
+          Stop
+        </button>
+        <button 
+          onclick="deleteWorld(${world.id})"
+          class="px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+           ${isWorking ? "disabled" : ""}>
+          Delete
+        </button>
+      </div>
+    `;
+    container.appendChild(el);
   });
-  if (res.ok) {
-    showToast("Server started successfully", "success");
-    loadPlayers();
-  } else {
-    const err = await res.json();
-    showToast(`Error: ${err.error}`, "error");
-  }
 }
 
-async function stopServer() {
-  const res = await fetch("/stop-server", { method: "POST" });
-  if (res.ok) {
-    showToast("Server stopped and cleaned up", "success");
-    loadPlayers();
-    clearLogs();
-  } else {
-    const err = await res.json();
-    showToast(`Error: ${err.error}`, "error");
-  }
-}
-
+// --- Player Management (mostly unchanged) ---
 async function addPlayer() {
   const name = document.getElementById("playerNameInput").value;
   if (!name) {
@@ -88,7 +190,7 @@ async function removePlayer(token) {
 
 async function loadPlayers() {
   const res = await fetch("/players");
-  const players = await res.json();
+  players = await res.json();
   const container = document.getElementById("playersList");
   container.innerHTML = "";
 
@@ -118,6 +220,38 @@ async function loadPlayers() {
     `;
     container.appendChild(el);
   });
+}
+
+// --- Log Management ---
+function updateLogSelector() {
+  const selector = document.getElementById("logSelector");
+  const previousValue = selector.value;
+  selector.innerHTML = "";
+
+  worlds
+    .filter((w) => w.status !== "STOPPED")
+    .forEach((world) => {
+      const option = document.createElement("option");
+      option.value = world.id;
+      option.textContent = world.name;
+      selector.appendChild(option);
+    });
+
+  if (selector.options.length > 0) {
+    if (
+      previousValue &&
+      [...selector.options].some((o) => o.value === previousValue)
+    ) {
+      selector.value = previousValue;
+    } else {
+      selector.value = selector.options[0].value;
+    }
+  }
+
+  if (selectedLogWorldId !== selector.value) {
+    selectedLogWorldId = selector.value;
+    displayLogs();
+  }
 }
 
 function updateStatusIndicator(elementId, isActive) {
@@ -178,17 +312,21 @@ document.addEventListener("DOMContentLoaded", () => {
   // Connect to WebSocket for log streaming
   connectWebSocket();
 
-  // Update status every 10 seconds
-  setInterval(updateServerStatus, 10000);
-  // Initial status check
-  updateServerStatus();
+  // Update worlds list periodically
+  setInterval(loadWorlds, 5000);
+
+  // Initial loads
+  loadWorlds();
   loadPlayers();
+
+  document.getElementById("logSelector").addEventListener("change", (e) => {
+    selectedLogWorldId = e.target.value;
+    displayLogs();
+  });
 });
 
 // WebSocket connection for log streaming
 let ws = null;
-let autoScroll = true;
-let logBuffer = [];
 
 function connectWebSocket() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -205,11 +343,18 @@ function connectWebSocket() {
       const data = JSON.parse(event.data);
 
       if (data.type === "initial_logs") {
-        logBuffer = data.logs;
+        Object.entries(data.logs).forEach(([worldId, logArray]) => {
+          logs.set(parseInt(worldId, 10), logArray);
+        });
         displayLogs();
       } else if (data.type === "log_entry") {
-        logBuffer.push(data.log);
-        addLogEntry(data.log);
+        if (!logs.has(data.worldId)) {
+          logs.set(data.worldId, []);
+        }
+        logs.get(data.worldId).push(data.log);
+        if (String(data.worldId) === selectedLogWorldId) {
+          addLogEntryToView(data.log);
+        }
       }
     } catch (error) {
       console.error("Error parsing WebSocket message:", error);
@@ -230,13 +375,11 @@ function displayLogs() {
   const logContent = document.getElementById("logContent");
   logContent.innerHTML = "";
 
-  logBuffer.forEach((log) => {
-    const logLine = document.createElement("div");
-    logLine.className = "log-line";
-    logLine.textContent = `[${new Date(log.timestamp).toLocaleTimeString()}] ${
-      log.message
-    }`;
-    logContent.appendChild(logLine);
+  const worldLogs = logs.get(parseInt(selectedLogWorldId, 10));
+  if (!worldLogs) return;
+
+  worldLogs.forEach((log) => {
+    addLogEntryToView(log);
   });
 
   if (autoScroll) {
@@ -244,10 +387,10 @@ function displayLogs() {
   }
 }
 
-function addLogEntry(log) {
+function addLogEntryToView(log) {
   const logContent = document.getElementById("logContent");
   const logLine = document.createElement("div");
-  logLine.className = "log-line";
+  logLine.className = `log-line ${log.type === "error" ? "text-red-400" : ""}`;
   logLine.textContent = `[${new Date(log.timestamp).toLocaleTimeString()}] ${
     log.message
   }`;
@@ -264,9 +407,10 @@ function scrollToBottom() {
 }
 
 function clearLogs() {
-  logBuffer = [];
+  if (!selectedLogWorldId) return;
+  logs.set(parseInt(selectedLogWorldId, 10), []);
   displayLogs();
-  showToast("Logs cleared", "info");
+  showToast("Logs for selected world cleared", "info");
 }
 
 function toggleAutoScroll() {
@@ -281,5 +425,31 @@ function toggleAutoScroll() {
 
   if (autoScroll) {
     scrollToBottom();
+  }
+}
+
+async function sendCommand() {
+  const input = document.getElementById("commandInput");
+  const command = input.value.trim();
+  if (!command) return;
+  if (!selectedLogWorldId) {
+    showToast("Select a running world to send a command to.", "error");
+    return;
+  }
+  try {
+    const res = await fetch("/send-command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command, worldId: selectedLogWorldId }),
+    });
+    if (res.ok) {
+      showToast(`Command sent: ${command}`, "success");
+      input.value = "";
+    } else {
+      const err = await res.json();
+      showToast(`Error: ${err.error}`, "error");
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, "error");
   }
 }

@@ -5,57 +5,65 @@ const { EventEmitter } = require("events");
 
 // Constants
 const TEMPLATE_DIR = path.join(__dirname, "server_template");
-const SERVER_DIR = path.join(__dirname, "server_instance");
-const DYNMAP_PORT = 8123;
 
 // Log streaming
 const logEmitter = new EventEmitter();
-const logBuffer = [];
-const MAX_LOG_BUFFER = 1000; // Keep last 1000 lines
+const logBuffers = new Map(); // worldId -> logBuffer
+const MAX_LOG_BUFFER = 1000;
 
-function addLogEntry(entry) {
+function addLogEntry(worldId, entry, type = "log") {
+  // Ensure worldId is a number for consistent type handling
+  const numericWorldId = parseInt(worldId, 10);
+
+  if (!logBuffers.has(numericWorldId)) {
+    logBuffers.set(numericWorldId, []);
+  }
+
+  const logBuffer = logBuffers.get(numericWorldId);
   const timestamp = new Date().toISOString();
   const logEntry = {
     timestamp,
     message: entry,
-    type: "log",
+    type,
   };
 
   logBuffer.push(logEntry);
 
-  // Keep buffer size manageable
   if (logBuffer.length > MAX_LOG_BUFFER) {
     logBuffer.shift();
   }
 
-  // Emit to all connected clients
-  logEmitter.emit("log", logEntry);
+  logEmitter.emit("log", { worldId: numericWorldId, log: logEntry });
 }
 
 function getLogBuffer() {
-  return [...logBuffer];
+  const allLogs = {};
+  for (const [worldId, buffer] of logBuffers.entries()) {
+    allLogs[worldId] = [...buffer];
+  }
+  return allLogs;
 }
 
 // Server State Management
-let serverProcess = null;
-let serverStatus = {
-  isRunning: false,
-  isInitialized: false,
-  startTime: null,
-};
+const runningServers = new Map(); // worldId -> {process, status}
+
+// On startup, check for any worlds that were running and reset their status
+async function initializeManager(db) {
+  console.log("Initializing server manager...");
+  db.run(`UPDATE worlds SET status = 'STOPPED' WHERE status = 'RUNNING'`);
+}
 
 // Minecraft Server Configuration
-function generateServerProperties(seed) {
+function generateServerProperties(world) {
   return `
-level-seed=${seed}
-server-port=25565
-query.port=25565
-webserver-port=${DYNMAP_PORT}
-motd=Dynmap Competition Server
+level-seed=${world.seed}
+server-port=${world.server_port}
+query.port=${world.server_port}
+motd=${world.name} - Dynmap Competition Server
 online-mode=false
-max-players=4
+max-players=20
 white-list=false
-allow-nether=false
+allow-nether=true
 enable-command-block=false
 spawn-animals=false
 spawn-npcs=false
@@ -64,196 +72,207 @@ enable-rcon=false
 `;
 }
 
-// Server Process Management
-async function stopAndCleanup() {
-  console.log("Stopping and cleaning up server...");
-  if (serverProcess) {
-    serverProcess.kill();
-    serverProcess = null;
+async function createWorldFiles(worldData) {
+  await fs.copy(TEMPLATE_DIR, worldData.path);
+  await fs.writeFile(
+    path.join(worldData.path, "server.properties"),
+    generateServerProperties(worldData)
+  );
+  // Update Dynmap configuration
+  const dynmapConfigPath = path.join(
+    worldData.path,
+    "plugins/dynmap/configuration.txt"
+  );
+  let configTxt = await fs.readFile(dynmapConfigPath, "utf-8");
+  configTxt = configTxt.replace(
+    /^webserver-port:.*$/m,
+    `webserver-port: ${worldData.dynmap_port}`
+  );
+  await fs.writeFile(dynmapConfigPath, configTxt);
+}
+
+async function startWorld(world, db) {
+  if (runningServers.has(world.id)) {
+    throw new Error(`World ${world.id} is already running or starting.`);
   }
 
-  serverStatus.isRunning = false;
-  serverStatus.isInitialized = false;
+  db.run(`UPDATE worlds SET status = 'STARTING' WHERE id = ?`, [world.id]);
+  addLogEntry(world.id, `Starting world '${world.name}'...`);
 
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  let retries = 3;
-  while (retries > 0) {
-    try {
-      await fs.remove(SERVER_DIR);
-      console.log("Successfully cleaned up server_instance folder.");
-      return;
-    } catch (err) {
-      retries--;
-      if (retries === 0) {
-        console.error(
-          "Failed to clean up server_instance after multiple attempts:",
-          err
-        );
-        throw err;
-      }
-      console.log(
-        `Cleanup attempt failed, retrying... (${retries} attempts remaining)`
-      );
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+  const serverProcess = spawn(
+    "java",
+    [
+      "-Xms2048M",
+      "-Xmx2048M",
+      // Memory and GC flags as before, but maybe reduced per server
+      "-XX:+UseG1GC",
+      "-XX:+ParallelRefProcEnabled",
+      "-XX:MaxGCPauseMillis=200",
+      "-XX:+UnlockExperimentalVMOptions",
+      "-XX:+DisableExplicitGC",
+      "-XX:+AlwaysPreTouch",
+      "-XX:G1HeapWastePercent=5",
+      "-XX:G1MixedGCCountTarget=4",
+      "-XX:InitiatingHeapOccupancyPercent=15",
+      "-XX:G1MixedGCLiveThresholdPercent=90",
+      "-XX:G1RSetUpdatingPauseTimePercent=5",
+      "-XX:SurvivorRatio=32",
+      "-XX:+PerfDisableSharedMem",
+      "-XX:MaxTenuringThreshold=1",
+      "-Dusing.aikars.flags=https://mcflags.emc.gs",
+      "-Daikars.new.flags=true",
+      "-jar",
+      "paper-server-launcher.jar",
+      "--nogui",
+    ],
+    {
+      cwd: world.path,
+      stdio: ["pipe", "pipe", "pipe"],
     }
+  );
+
+  const status = {
+    isInitialized: false,
+    startTime: new Date(),
+  };
+
+  runningServers.set(world.id, { process: serverProcess, status });
+
+  // Create log file stream
+  const logFile = fs.createWriteStream(path.join(world.path, "server.log"), {
+    flags: "a",
+  });
+  serverProcess.stdout.pipe(logFile);
+  serverProcess.stderr.pipe(logFile);
+
+  const handleOutput = (data) => {
+    const output = data.toString();
+    const lines = output.split("\n").filter((line) => line.trim());
+    lines.forEach((line) => addLogEntry(world.id, line));
+
+    if (output.includes(`! For help, type "help"`)) {
+      status.isInitialized = true;
+      db.run(`UPDATE worlds SET status = 'RUNNING' WHERE id = ?`, [world.id]);
+      addLogEntry(world.id, `World '${world.name}' is fully initialized.`);
+    }
+  };
+
+  serverProcess.stdout.on("data", handleOutput);
+  serverProcess.stderr.on("data", (data) => {
+    const output = data.toString();
+    const lines = output.split("\n").filter((line) => line.trim());
+    lines.forEach((line) => addLogEntry(world.id, `[ERROR] ${line}`, "error"));
+  });
+
+  serverProcess.on("error", (err) => {
+    console.error(`Error starting world ${world.id}:`, err);
+    addLogEntry(
+      world.id,
+      `Failed to start server process: ${err.message}`,
+      "error"
+    );
+    db.run(`UPDATE worlds SET status = 'ERROR' WHERE id = ?`, [world.id]);
+    runningServers.delete(world.id);
+  });
+
+  serverProcess.on("exit", (code, signal) => {
+    console.log(
+      `World ${world.id} exited with code ${code} and signal ${signal}`
+    );
+    addLogEntry(
+      world.id,
+      `Server process exited (code: ${code}, signal: ${signal})`
+    );
+    db.run(`UPDATE worlds SET status = 'STOPPED' WHERE id = ?`, [world.id]);
+    runningServers.delete(world.id);
+  });
+}
+
+async function stopWorld(worldId, db) {
+  if (worldId === -1) {
+    // Stop all running worlds
+    console.log("Stopping all running worlds...");
+    const promises = [];
+    for (const id of runningServers.keys()) {
+      promises.push(stopWorld(id, db));
+    }
+    await Promise.all(promises);
+    return;
+  }
+
+  // Ensure worldId is a number for consistent type handling
+  const numericWorldId = parseInt(worldId, 10);
+
+  console.log("worldId:", worldId);
+  console.log("numericWorldId:", numericWorldId);
+  console.log("Running servers:", Array.from(runningServers.keys()));
+  console.log(
+    "Running servers types:",
+    Array.from(runningServers.keys()).map((k) => `${k} (${typeof k})`)
+  );
+
+  const server = runningServers.get(numericWorldId);
+  console.log("Server:", server);
+  if (server) {
+    db.run(`UPDATE worlds SET status = 'STOPPING' WHERE id = ?`, [
+      numericWorldId,
+    ]);
+    console.log("Stopping world...", numericWorldId);
+    addLogEntry(numericWorldId, `Stopping world...`);
+    server.process.kill();
+    runningServers.delete(numericWorldId);
   }
 }
 
-async function startServer(seed) {
-  await fs.copy(TEMPLATE_DIR, SERVER_DIR);
-  await fs.writeFile(
-    path.join(SERVER_DIR, "server.properties"),
-    generateServerProperties(seed)
-  );
+async function deleteWorld(world, db) {
+  // Ensure world.id is a number for consistent type handling
+  const numericWorldId = parseInt(world.id, 10);
 
-  // Create log file stream
-  const logFile = fs.createWriteStream(path.join(SERVER_DIR, "server.log"), {
-    flags: "a",
-  });
-
-  // Create a promise that resolves when the server is initialized
-  const initializationPromise = new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error("Server initialization timed out after 2 minutes"));
-    }, 120000); // 2 minute timeout
-
-    let initializationCheckInterval = null;
-
-    serverProcess = spawn(
-      "java",
-      [
-        "-Xms8192M",
-        "-Xmx8192M",
-        "-XX:+UseG1GC",
-        "-XX:+ParallelRefProcEnabled",
-        "-XX:MaxGCPauseMillis=200",
-        "-XX:+UnlockExperimentalVMOptions",
-        "-XX:+DisableExplicitGC",
-        "-XX:+AlwaysPreTouch",
-        "-XX:G1HeapWastePercent=5",
-        "-XX:G1MixedGCCountTarget=4",
-        "-XX:InitiatingHeapOccupancyPercent=15",
-        "-XX:G1MixedGCLiveThresholdPercent=90",
-        "-XX:G1RSetUpdatingPauseTimePercent=5",
-        "-XX:SurvivorRatio=32",
-        "-XX:+PerfDisableSharedMem",
-        "-XX:MaxTenuringThreshold=1",
-        "-Dusing.aikars.flags=https://mcflags.emc.gs",
-        "-Daikars.new.flags=true",
-        "-XX:G1NewSizePercent=30",
-        "-XX:G1MaxNewSizePercent=40",
-        "-XX:G1HeapRegionSize=8M",
-        "-XX:G1ReservePercent=20",
-        "-DPaper.WorkerThreadCount=12",
-        "-jar",
-        "paper-server-launcher.jar",
-        "--nogui",
-      ],
-      {
-        cwd: SERVER_DIR,
-        stdio: ["pipe", "pipe", "pipe"],
-      }
-    );
-
-    // Pipe stdout to both file and our processing
-    serverProcess.stdout.pipe(logFile);
-    serverProcess.stderr.pipe(logFile);
-    serverProcess.stderr.pipe(process.stderr); // Keep console error visibility
-
-    serverStatus = {
-      isRunning: true,
-      isInitialized: false,
-      startTime: new Date(),
-    };
-
-    // Function to check if server is initialized
-    const checkInitialization = () => {
-      if (serverStatus.isInitialized) {
-        clearInterval(initializationCheckInterval);
-        clearTimeout(timeout);
-        resolve();
-      }
-    };
-
-    // Start checking initialization status every 500ms
-    initializationCheckInterval = setInterval(checkInitialization, 500);
-
-    serverProcess.on("error", (err) => {
-      console.error("Failed to start server process:", err);
-      serverProcess = null;
-      serverStatus.isRunning = false;
-      serverStatus.isInitialized = false;
-      if (initializationCheckInterval) {
-        clearInterval(initializationCheckInterval);
-        initializationCheckInterval = null;
-      }
-      clearTimeout(timeout);
-      reject(err);
-    });
-
-    serverProcess.on("exit", (code, signal) => {
-      if (code !== 0) {
-        console.error(
-          `Server process exited with code ${code} and signal ${signal}`
-        );
-        serverProcess = null;
-        serverStatus.isRunning = false;
-        serverStatus.isInitialized = false;
-        if (initializationCheckInterval) {
-          clearInterval(initializationCheckInterval);
-          initializationCheckInterval = null;
-        }
-        clearTimeout(timeout);
-        reject(new Error(`Server process exited with code ${code}`));
-      }
-    });
-
-    serverProcess.stdout.on("data", (data) => {
-      const output = data.toString();
-
-      // Add to log buffer for streaming
-      const lines = output.split("\n").filter((line) => line.trim());
-      lines.forEach((line) => addLogEntry(line));
-
-      if (output.includes(`! For help, type "help"`)) {
-        serverStatus.isInitialized = true;
-        console.log("Minecraft server fully initialized");
-      }
-    });
-
-    serverProcess.stderr.on("data", (data) => {
-      const output = data.toString();
-
-      // Add to log buffer for streaming
-      const lines = output.split("\n").filter((line) => line.trim());
-      lines.forEach((line) => addLogEntry(`[ERROR] ${line}`));
-    });
-  });
-
-  return initializationPromise;
+  if (runningServers.has(numericWorldId)) {
+    await stopWorld(numericWorldId, db);
+    // Give it a moment to release file handles
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  db.run(`DELETE FROM worlds WHERE id = ?`, [numericWorldId]);
+  await fs.remove(world.path);
+  logBuffers.delete(numericWorldId); // Clean up log buffer
+  console.log(`Successfully deleted world ${numericWorldId}`);
 }
 
 function getServerStatus() {
-  const currentTime = new Date();
-  const uptime = serverStatus.startTime
-    ? (currentTime - serverStatus.startTime) / 1000
-    : 0;
+  const status = {};
+  for (const [worldId, serverData] of runningServers.entries()) {
+    const currentTime = new Date();
+    const uptime = serverData.status.startTime
+      ? (currentTime - serverData.status.startTime) / 1000
+      : 0;
 
-  return {
-    isRunning: serverStatus.isRunning,
-    isInitialized: serverStatus.isInitialized,
-    uptime: Math.floor(uptime),
-    startTime: serverStatus.startTime,
-  };
+    status[worldId] = {
+      isInitialized: serverData.status.isInitialized,
+      uptime: Math.floor(uptime),
+      startTime: serverData.status.startTime,
+    };
+  }
+  return status;
+}
+
+function sendCommand(command, worldId) {
+  const server = runningServers.get(parseInt(worldId, 10));
+  if (!server) {
+    throw new Error("Server for the given world is not running");
+  }
+  server.process.stdin.write(command + "\n");
 }
 
 module.exports = {
-  startServer,
-  stopAndCleanup,
+  initializeManager,
+  createWorldFiles,
+  startWorld,
+  stopWorld,
+  deleteWorld,
   getServerStatus,
-  DYNMAP_PORT,
   logEmitter,
   addLogEntry,
   getLogBuffer,
+  sendCommand,
 };

@@ -6,4 +6,5 @@ node_modules/
 
 players.db
 /server_instance/
+/worlds/
 /dynmapsync/target

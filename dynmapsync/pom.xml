@@ -62,9 +62,30 @@
           <id>MikeRepo</id>
           <url>https://repo.mikeprimm.com/</url>
       </repository>
+      <repository>
+          <id>placeholderapi</id>
+          <url>https://repo.extendedclip.com/content/repositories/placeholderapi/</url>
+      </repository>
+          <repository>
+              <id>codemc</id>
+              <url>https://repo.codemc.io/repository/maven-public/</url>
+          </repository>
   </repositories>
 
+
   <dependencies>
+      <dependency>
+          <groupId>org.popcraft</groupId>
+          <artifactId>chunky-common</artifactId>
+          <version>1.2.217</version>
+          <scope>provided</scope>
+      </dependency>
+      <dependency>
+          <groupId>me.clip</groupId>
+          <artifactId>placeholderapi</artifactId>
+          <version>2.11.6</version>
+          <scope>provided</scope>
+      </dependency>
       <dependency>
           <groupId>com.destroystokyo.paper</groupId>
           <artifactId>paper-api</artifactId>
