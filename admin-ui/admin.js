@@ -81,7 +81,7 @@ async function deleteWorld(worldId) {
     return;
 
   showToast(`Deleting world ${worldId}...`, "info");
-  await fetch(`/api/worlds/${worldId}/delete`, { method: "DELETE" });
+  await fetch(`/api/worlds/${worldId}`, { method: "DELETE" });
   // The list will refresh, removing the deleted world
 }
 
@@ -214,7 +214,7 @@ async function loadPlayers() {
         </div>
         <div>
           <span class="text-sm text-gray-600">Dynmap URL:</span>
-          <code class="block mt-1 px-3 py-2 bg-gray-100 rounded text-sm font-mono">${window.location.origin}/map?token=${player.token}</code>
+          <code class="block mt-1 px-3 py-2 bg-gray-100 rounded text-sm font-mono">${window.location.origin}/update-position/${player.token}</code>
         </div>
       </div>
     `;
