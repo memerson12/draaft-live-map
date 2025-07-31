@@ -99,7 +99,7 @@ components:
   #  hidenames: false
    
   - class: org.dynmap.SimpleWebChatComponent
-    allowchat: true
+    allowchat: false
     # If true, web UI users can supply name for chat using 'playername' URL parameter.  'trustclientname' must also be set true.
     allowurlname: false
   
@@ -132,22 +132,22 @@ components:
     showworldborder: true
     worldborderlabel: "Border"
     
-  - class: org.dynmap.ClientComponent
-    type: chat
-    allowurlname: false
-  - class: org.dynmap.ClientComponent
-    type: chatballoon
-    focuschatballoons: false
-  - class: org.dynmap.ClientComponent
-    type: chatbox
-    showplayerfaces: true
-    messagettl: 5
-    # Optional: set number of lines in scrollable message history: if set, messagettl is not used to age out messages
-    #scrollback: 100
-    # Optional: set maximum number of lines visible for chatbox
-    #visiblelines: 10
-    # Optional: send push button
-    sendbutton: false
+  #- class: org.dynmap.ClientComponent
+  #  type: chat
+  #  allowurlname: false
+  #- class: org.dynmap.ClientComponent
+  #  type: chatballoon
+  #  focuschatballoons: false
+  #- class: org.dynmap.ClientComponent
+  #  type: chatbox
+  #  showplayerfaces: true
+  #  messagettl: 5
+  #  # Optional: set number of lines in scrollable message history: if set, messagettl is not used to age out messages
+  #  #scrollback: 100
+  #  # Optional: set maximum number of lines visible for chatbox
+  #  #visiblelines: 10
+  #  # Optional: send push button
+  #  sendbutton: false
   - class: org.dynmap.ClientComponent
     type: playermarkers
     showplayerfaces: true
@@ -165,8 +165,8 @@ components:
     
   #- class: org.dynmap.ClientComponent
   #  type: digitalclock
-  - class: org.dynmap.ClientComponent
-    type: link
+  # - class: org.dynmap.ClientComponent
+  #  type: link
     
   - class: org.dynmap.ClientComponent
     type: timeofdayclock
@@ -202,7 +202,7 @@ components:
 display-whitelist: false
 
 # How often a tile gets rendered (in seconds).
-renderinterval: 1
+renderinterval: 0.2
 
 # How many tiles on update queue before accelerate render interval
 renderacceleratethreshold: 60
@@ -211,7 +211,7 @@ renderacceleratethreshold: 60
 renderaccelerateinterval: 0.2
 
 # How many update tiles to work on at once (if not defined, default is 1/2 the number of cores)
-tiles-rendered-at-once: 2
+tiles-rendered-at-once: 8
 
 # If true, use normal priority threads for rendering (versus low priority) - this can keep rendering
 # from starving on busy Windows boxes (Linux JVMs pretty much ignore thread priority), but may result
@@ -239,7 +239,7 @@ tileupdatedelay: 30
 enabletilehash: true
 
 # Optional - hide ores: render as normal stone (so that they aren't revealed by maps)
-#hideores: true
+#hideores: false
 
 # Optional - enabled BetterGrass style rendering of grass and snow block sides
 #better-grass: true
@@ -357,23 +357,23 @@ progressloginterval: 100
 # Parallel fullrender: if defined, number of concurrent threads used for fullrender or radiusrender
 #   Note: setting this will result in much more intensive CPU use, some additional memory use.  Caution should be used when
 #  setting this to equal or exceed the number of physical cores on the system.
-#parallelrendercnt: 4
+#parallelrendercnt: 8
 
 # Interval the browser should poll for updates.
-updaterate: 2000
+updaterate: 500
 
 # If nonzero, server will pause fullrender/radiusrender processing when 'fullrenderplayerlimit' or more users are logged in
-fullrenderplayerlimit: 0
+fullrenderplayerlimit: 10
 # If nonzero, server will pause update render processing when 'updateplayerlimit' or more users are logged in
 updateplayerlimit: 0
 # Target limit on server thread use - msec per tick
-per-tick-time-limit: 50
+per-tick-time-limit: 100
 # If TPS of server is below this setting, update renders processing is paused
-update-min-tps: 18.0
+update-min-tps: 20
 # If TPS of server is below this setting, full/radius renders processing is paused
-fullrender-min-tps: 18.0
+fullrender-min-tps: 20
 # If TPS of server is below this setting, zoom out processing is paused
-zoomout-min-tps: 18.0
+zoomout-min-tps: 20
 
 showplayerfacesinmenu: true
 

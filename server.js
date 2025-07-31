@@ -235,6 +235,7 @@ app.get("/players", (req, res) => {
 
 app.post("/update-position/:token", (req, res) => {
   const { token } = req.params;
+  console.log("update-position", token, req.body);
   const { x, y, z } = req.body;
 
   db.run(

@@ -10,6 +10,7 @@ import org.dynmap.DynmapCommonAPI;
 import org.dynmap.DynmapCommonAPIListener;
 import org.dynmap.markers.Marker;
 import org.dynmap.markers.MarkerAPI;
+import org.dynmap.markers.MarkerIcon;
 import org.dynmap.markers.MarkerSet;
 
 import java.io.File;
@@ -20,14 +21,13 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.logging.Logger;
 
-import org.popcraft.chunky.Chunky;
-import org.popcraft.chunky.ChunkyProvider;
 
 public class DynmapMarkerSync extends JavaPlugin implements Listener {
 
     public final Logger LOGGER = getLogger();
 
     private MarkerAPI markerAPI;
+    private MarkerIconCreator markerIconCreator;
     private MarkerSet markerSet;
     private Connection dbConnection;
     private final String MARKER_SET_ID = "live_map_players";
@@ -110,16 +110,14 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
     }
 
     public void onDynmapReady(DynmapCommonAPI api) {
-//        api.triggerRenderOfVolume("world", -1000, 0, -1000, 1000, 255, 1000);
-        LOGGER.info(String.valueOf(api.getPauseFullRadiusRenders()));
-        api.setPauseFullRadiusRenders(false);
-        LOGGER.info(String.valueOf(api.getPauseFullRadiusRenders()));
+//        api.triggerRenderOfVolume("world", -3000, 70, -3000, 3000, 200, 3000);
 
         markerAPI = api.getMarkerAPI();
         if (markerAPI == null) {
             LOGGER.severe("Failed to get MarkerAPI!");
             return;
         }
+        markerIconCreator = new MarkerIconCreator(markerAPI);
 
         markerSet = markerAPI.getMarkerSet(MARKER_SET_ID);
         if (markerSet == null) {
@@ -150,7 +148,7 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
             public void run() {
                 syncMarkers();
             }
-        }.runTaskTimer(this, 0L, 100L); // 5 sec interval
+        }.runTaskTimer(this, 100, 10L);
     }
 
     private void syncMarkers() {
@@ -173,11 +171,21 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
 
                 String markerId = "plr_" + token;
                 Marker m = markersMap.remove(markerId);
+
+
                 if (m != null) {
                     m.setLocation("world", x, y, z);
                     m.setLabel(name);
                 } else {
-                    markerSet.createMarker(markerId, name, "world", x, y, z, markerAPI.getMarkerIcon("default"), false);
+                    MarkerIcon icon = markerAPI.getMarkerIcon(name);
+                    if (icon == null) {
+                        LOGGER.info("Creating new marker icon: " + name);
+                        icon = markerIconCreator.registerSkinMarker(name, name, name);
+                    } else {
+                        LOGGER.info("Marker icon Salready exists: " + name + ". Skipping Icon Creation...");
+                    }
+
+                    markerSet.createMarker(markerId, name, "world", x, y, z, icon, false);
                 }
             }
 
