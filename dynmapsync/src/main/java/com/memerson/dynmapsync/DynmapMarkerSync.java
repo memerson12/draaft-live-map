@@ -154,8 +154,9 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
     private void syncMarkers() {
         if (markerSet == null || dbConnection == null)
             return;
-        try (Statement stmt = dbConnection.createStatement();
-                ResultSet rs = stmt.executeQuery("SELECT token, name, x, y, z FROM players")) {
+        try (
+                Statement stmt = dbConnection.createStatement();
+             ResultSet rs = stmt.executeQuery("SELECT token, name, x, y, z, dimension FROM players")) {
 
             Map<String, Marker> markersMap = new HashMap<>();
             for (Marker m : markerSet.getMarkers()) {
@@ -165,6 +166,7 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
             while (rs.next()) {
                 String token = rs.getString("token");
                 String name = rs.getString("name");
+                String dimension = rs.getString("dimension");
                 double x = rs.getDouble("x");
                 double y = rs.getDouble("y");
                 double z = rs.getDouble("z");
@@ -172,20 +174,17 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
                 String markerId = "plr_" + token;
                 Marker m = markersMap.remove(markerId);
 
-
                 if (m != null) {
-                    m.setLocation("world", x, y, z);
-                    m.setLabel(name);
-                } else {
-                    MarkerIcon icon = markerAPI.getMarkerIcon(name);
-                    if (icon == null) {
-                        LOGGER.info("Creating new marker icon: " + name);
-                        icon = markerIconCreator.registerSkinMarker(name, name, name);
+                    if(!m.getWorld().equals(dimension)) {
+                        m.deleteMarker();
+                        createMarker(name, markerId, dimension, x, y, z);
                     } else {
-                        LOGGER.info("Marker icon Salready exists: " + name + ". Skipping Icon Creation...");
+                        m.setLocation(dimension, x, y, z);
                     }
 
-                    markerSet.createMarker(markerId, name, "world", x, y, z, icon, false);
+
+                } else {
+                    createMarker(name, markerId, dimension, x, y, z);
                 }
             }
 
@@ -196,6 +195,18 @@ public class DynmapMarkerSync extends JavaPlugin implements Listener {
         } catch (SQLException e) {
             LOGGER.warning("DB read error: " + e.getMessage());
         }
+    }
+
+    private void createMarker(String name, String markerId, String dimension, double x, double y, double z) {
+        MarkerIcon icon = markerAPI.getMarkerIcon(name);
+        if (icon == null) {
+            LOGGER.info("Creating new marker icon: " + name);
+            icon = markerIconCreator.registerSkinMarker(name, name, name);
+        } else {
+            LOGGER.info("Marker icon already exists: " + name + ". Skipping Icon Creation...");
+        }
+        Marker marker = markerSet.createMarker(markerId, name, dimension, x, y, z, icon, false);
+        marker.setLabel(name);
     }
 
     @Override

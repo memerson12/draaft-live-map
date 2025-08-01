@@ -84,6 +84,7 @@ function initializeDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
       token TEXT UNIQUE NOT NULL,
+      dimension TEXT NOT NULL DEFAULT 'world',
       x REAL DEFAULT 0,
       y REAL DEFAULT 0,
       z REAL DEFAULT 0
@@ -227,20 +228,23 @@ app.post("/remove-player", (req, res) => {
 });
 
 app.get("/players", (req, res) => {
-  db.all(`SELECT name, token, x, y, z FROM players`, [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
+  db.all(
+    `SELECT name, token, dimension, x, y, z FROM players`,
+    [],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
 });
 
 app.post("/update-position/:token", (req, res) => {
   const { token } = req.params;
-  console.log("update-position", token, req.body);
-  const { x, y, z } = req.body;
+  const { x, y, z, dimension } = req.body;
 
   db.run(
-    `UPDATE players SET x = ?, y = ?, z = ? WHERE token = ?`,
-    [x, y, z, token],
+    `UPDATE players SET x = ?, y = ?, z = ?, dimension = ? WHERE token = ?`,
+    [x, y, z, dimension, token],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
       if (this.changes === 0)
