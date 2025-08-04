@@ -79,6 +79,7 @@ let db = null;
 function initializeDatabase() {
   fs.ensureDirSync(WORLDS_DIR);
   const db = new sqlite3.Database(DB_PATH);
+  db.exec("PRAGMA journal_mode = WAL;");
   db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS players (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,6 +95,12 @@ function initializeDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       seed TEXT NOT NULL,
+      isOverworldGenerated BOOLEAN NOT NULL DEFAULT FALSE,
+      isNetherGenerated BOOLEAN NOT NULL DEFAULT FALSE,
+      isEndGenerated BOOLEAN NOT NULL DEFAULT FALSE,
+      isOverworldMapRendered BOOLEAN NOT NULL DEFAULT FALSE,
+      isNetherMapRendered BOOLEAN NOT NULL DEFAULT FALSE,
+      isEndMapRendered BOOLEAN NOT NULL DEFAULT FALSE,
       status TEXT NOT NULL DEFAULT 'STOPPED', -- STOPPED, STARTING, RUNNING, STOPPING, ERROR
       path TEXT UNIQUE NOT NULL,
       server_port INTEGER UNIQUE,
@@ -273,12 +280,30 @@ app.post("/send-command", (req, res) => {
 });
 
 // Process Cleanup
-process.on("exit", () => {
-  // gracefully stop all running worlds on exit
-  stopWorld(-1, db); // special case to stop all
-});
-process.on("SIGINT", () => process.exit());
-process.on("SIGTERM", () => process.exit());
+async function gracefulShutdown() {
+  console.log("Shutting down gracefully...");
+  try {
+    await stopWorld(-1, db); // stop all worlds
+    console.log("All worlds have been stopped.");
+  } catch (err) {
+    console.error("Error stopping worlds during shutdown:", err);
+  } finally {
+    if (db) {
+      db.close((err) => {
+        if (err) {
+          console.error(err.message);
+        }
+        console.log("Database connection closed.");
+        process.exit(0);
+      });
+    } else {
+      process.exit(0);
+    }
+  }
+}
+
+process.on("SIGINT", gracefulShutdown);
+process.on("SIGTERM", gracefulShutdown);
 
 // Initialize and Start Server
 db = initializeDatabase();

@@ -100,27 +100,29 @@ async function startWorld(world, db) {
   addLogEntry(world.id, `Starting world '${world.name}'...`);
 
   const serverProcess = spawn(
-    "java",
+    "C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.27.6-hotspot\\bin\\java.exe",
     [
-      "-Xms2048M",
-      "-Xmx2048M",
+      "-Xms16384M",
+      "-Xmx16384M",
       // Memory and GC flags as before, but maybe reduced per server
       "-XX:+UseG1GC",
       "-XX:+ParallelRefProcEnabled",
-      "-XX:MaxGCPauseMillis=200",
-      "-XX:+UnlockExperimentalVMOptions",
-      "-XX:+DisableExplicitGC",
-      "-XX:+AlwaysPreTouch",
-      "-XX:G1HeapWastePercent=5",
-      "-XX:G1MixedGCCountTarget=4",
-      "-XX:InitiatingHeapOccupancyPercent=15",
-      "-XX:G1MixedGCLiveThresholdPercent=90",
-      "-XX:G1RSetUpdatingPauseTimePercent=5",
-      "-XX:SurvivorRatio=32",
       "-XX:+PerfDisableSharedMem",
-      "-XX:MaxTenuringThreshold=1",
+      "-XX:InitiatingHeapOccupancyPercent=45",
+      "-XX:G1ReservePercent=10",
+      "-XX:G1NewSizePercent=20",
+      "-XX:G1MaxNewSizePercent=50",
       "-Dusing.aikars.flags=https://mcflags.emc.gs",
       "-Daikars.new.flags=true",
+      "-Dcom.sun.management.jmxremote",
+      "-Dcom.sun.management.jmxremote.port=9010",
+      "-Dcom.sun.management.jmxremote.rmi.port=9010",
+      "-Dcom.sun.management.jmxremote.local.only=false",
+      "-Dcom.sun.management.jmxremote.authenticate=false",
+      "-Dcom.sun.management.jmxremote.ssl=false",
+      "-Djava.rmi.server.hostname=127.0.0.1",
+      "-Dvisualvm.display.name=Minecraft",
+      `-Dworld.id=${world.id}`,
       "-jar",
       "paper-server-launcher.jar",
       "--nogui",
@@ -212,7 +214,6 @@ async function stopWorld(worldId, db) {
   );
 
   const server = runningServers.get(numericWorldId);
-  console.log("Server:", server);
   if (server) {
     db.run(`UPDATE worlds SET status = 'STOPPING' WHERE id = ?`, [
       numericWorldId,
@@ -227,7 +228,7 @@ async function stopWorld(worldId, db) {
 async function deleteWorld(world, db) {
   // Ensure world.id is a number for consistent type handling
   const numericWorldId = parseInt(world.id, 10);
-
+  console.log("Deleting world...", numericWorldId);
   if (runningServers.has(numericWorldId)) {
     await stopWorld(numericWorldId, db);
     // Give it a moment to release file handles

@@ -135,6 +135,25 @@ function renderWorlds() {
         }" target="_blank" class="text-blue-600 hover:underline">http://localhost:${
       world.dynmap_port
     }</a></p>
+        <div class="mt-4 pt-4 border-t border-gray-200">
+          <div class="grid grid-cols-3 gap-x-2 gap-y-1 text-xs">
+            <span class="font-semibold col-span-1"></span>
+            <span class="font-semibold text-center">Generated</span>
+            <span class="font-semibold text-center">Rendered</span>
+
+            <span class="col-span-1">Overworld</span>
+            <div class="flex justify-center items-center"><span class="status-indicator status-${!!world.isOverworldGenerated}"></span></div>
+            <div class="flex justify-center items-center"><span class="status-indicator status-${!!world.isOverworldMapRendered}"></span></div>
+
+            <span class="col-span-1">Nether</span>
+            <div class="flex justify-center items-center"><span class="status-indicator status-${!!world.isNetherGenerated}"></span></div>
+            <div class="flex justify-center items-center"><span class="status-indicator status-${!!world.isNetherMapRendered}"></span></div>
+
+            <span class="col-span-1">End</span>
+            <div class="flex justify-center items-center"><span class="status-indicator status-${!!world.isEndGenerated}"></span></div>
+            <div class="flex justify-center items-center"><span class="status-indicator status-${!!world.isEndMapRendered}"></span></div>
+          </div>
+        </div>
       </div>
       <div class="flex space-x-2">
         <button 

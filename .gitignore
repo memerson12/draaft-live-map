@@ -8,3 +8,5 @@ players.db
 /server_instance/
 /worlds/
 /dynmapsync/target
+players.db-shm
+players.db-wal
