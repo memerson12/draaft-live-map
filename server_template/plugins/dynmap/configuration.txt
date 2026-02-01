@@ -352,7 +352,7 @@ timesliceinterval: 0.0
 maxchunkspertick: 800
 
 # Progress report interval for fullrender/radiusrender, in tiles.  Must be 100 or greater
-progressloginterval: 100
+progressloginterval: 500
 
 # Parallel fullrender: if defined, number of concurrent threads used for fullrender or radiusrender
 #   Note: setting this will result in much more intensive CPU use, some additional memory use.  Caution should be used when

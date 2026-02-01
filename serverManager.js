@@ -102,18 +102,12 @@ async function startWorld(world, db) {
   const serverProcess = spawn(
     "C:\\Program Files\\Eclipse Adoptium\\jdk-11.0.27.6-hotspot\\bin\\java.exe",
     [
-      "-Xms16384M",
-      "-Xmx16384M",
-      // Memory and GC flags as before, but maybe reduced per server
-      "-XX:+UseG1GC",
-      "-XX:+ParallelRefProcEnabled",
-      "-XX:+PerfDisableSharedMem",
-      "-XX:InitiatingHeapOccupancyPercent=45",
-      "-XX:G1ReservePercent=10",
-      "-XX:G1NewSizePercent=20",
-      "-XX:G1MaxNewSizePercent=50",
-      "-Dusing.aikars.flags=https://mcflags.emc.gs",
-      "-Daikars.new.flags=true",
+      "-Xms6144M",
+      "-Xmx6144M",
+      // Throughput-optimized flags for chunk generation
+      "-XX:+UseParallelGC",
+      "-XX:NewRatio=1", // Aggressive young generation sizing
+      // "-DPaper.WorkerThreadCount=10", // Use 10 threads for world generation
       "-Dcom.sun.management.jmxremote",
       "-Dcom.sun.management.jmxremote.port=9010",
       "-Dcom.sun.management.jmxremote.rmi.port=9010",
